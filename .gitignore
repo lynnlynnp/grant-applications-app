@@ -159,8 +159,7 @@ cython_debug/
 #Local Files
 .DS_Store
 notes/
-*.json
-*.csv
+data/
 *.spacy
 ner-training/roberta_model
 *.png
