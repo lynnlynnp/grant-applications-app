@@ -56,13 +56,40 @@ def load_and_process(raw_csv: bytes) -> Tuple[pd.DataFrame, str]:
     """
     # Read Uploaded Data 
     df_orig = pd.read_csv(BytesIO(raw_csv))
+    
+    # Drop completely empty rows or junk rows with mostly NaNs
+    df_orig = df_orig.dropna(how='all')
+    if not df_orig.empty:
+        df_orig = df_orig.dropna(thresh=df_orig.shape[1] // 2)
+
     df_orig.columns = df_orig.columns.str.lower().str.replace(' ', '_')
 
     # Detect freeform column
     freeform_col = detect_freeform_col(df_orig)
     id_col = detect_id_col(df_orig)
     school_type_col = detect_school_type_col(df_orig)
-    logger.info(id_col)
+    
+    # Fallbacks and validations
+    if freeform_col is None:
+        # If detection fails, try picking the column with the longest average string length
+        obj_cols = df_orig.select_dtypes(include=["object"]).columns
+        if not obj_cols.empty:
+            freeform_col = df_orig[obj_cols].apply(lambda x: x.astype(str).str.len().mean()).idxmax()
+        else:
+            raise ValueError("Could not detect a text column for analysis. Please ensure your CSV contains application text.")
+
+    if id_col is None:
+        # Fallback to index if no ID detected
+        df_orig['generated_id'] = range(1, len(df_orig) + 1)
+        id_col = 'generated_id'
+        
+    if school_type_col is None:
+        # Use a dummy column if no school type detected to avoid downstream errors
+        df_orig['unknown_school_type'] = 'Unknown'
+        school_type_col = 'unknown_school_type'
+
+    logger.info(f"ID Column: {id_col}")
+    logger.info(f"Freeform Column: {freeform_col}")
 
     df_orig = df_orig[df_orig[freeform_col].notna()]
     df_orig = df_orig.assign(**{id_col: df_orig[id_col].astype(int)})

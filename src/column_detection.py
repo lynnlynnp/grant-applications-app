@@ -78,14 +78,18 @@ def detect_freeform_col(
             if token in col.lower():
                 score *= factor
 
-        # penalise low uniqueness
-        if m["unique_ratio"] < low_uniqueness_penalty:
+        # penalise extremely low uniqueness
+        if m["unique_ratio"] < 0.05:
             score *= 0.5
 
         scores[col] = score
 
+    if not scores:
+        return (None, {}) if return_scores else None
+
     best_col, best_score = max(scores.items(), key=lambda kv: kv[1])
-    passed = best_score >= min_score
+    # Lower min_score to 0.3 to be more inclusive
+    passed = best_score >= 0.3
 
     if return_scores:
         return (best_col if passed else None, scores)
@@ -97,10 +101,10 @@ def detect_freeform_col(
 def detect_id_col(df: pd.DataFrame) -> str | None:
     n_rows = len(df)
 
-    # 1) Name‐based detection
-    name_pattern = re.compile(r'\b(id|identifier|key)\b', re.IGNORECASE)
+    # 1) Name‐based detection - more flexible for common patterns like app_id
+    name_pattern = re.compile(r'(^|[_])(id|identifier|key)($|[_])', re.IGNORECASE)
     for col in df.columns:
-        if name_pattern.search(col):
+        if name_pattern.search(col) or col.lower() == 'id':
             return col
 
     # 2) Uniqueness detection: columns where every row is unique
@@ -108,6 +112,15 @@ def detect_id_col(df: pd.DataFrame) -> str | None:
         col for col in df.columns
         if df[col].nunique(dropna=False) == n_rows
     ]
+    
+    # Fallback: if no perfect unique col, try dropping rows with many NaNs 
+    # and check uniqueness again, or just find the "most unique" numeric col.
+    if not unique_cols:
+        # Check for "almost unique" columns (99%+ unique) which might happen with junk rows at end
+        for col in df.columns:
+            if df[col].nunique() >= n_rows * 0.98:
+                unique_cols.append(col)
+
     if not unique_cols:
         return None
 
